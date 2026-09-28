@@ -205,7 +205,54 @@ def preispirat():
 
 
 def amazon():
-    t = get('https://www.amazon.de/s?k=playstation+5+slim+disc&i=videogames')
+    # Amazon blockiert GitHub-Server: in der Cloud kommen die Preise vom PC (--amazon-relay) ueber ntfy
+    return amazon_from_relay() if IN_CLOUD else amazon_scrape()
+
+
+def relay_topic():
+    return CFG['ntfy_topic'] + '-amazon'  # eigener Kanal, das Handy abonniert nur den Hauptkanal
+
+
+def amazon_relay_send():
+    """PC: Amazon abfragen und das Ergebnis fuer die Cloud ablegen (ntfy speichert Nachrichten ca. 12 Std.)."""
+    if not CFG.get('ntfy_topic'):
+        sys.exit('ntfy_topic fehlt in secrets.json')
+    offers = [{**o, 'title': o['title'][:120]} for o in amazon_scrape()][:10]
+    requests.post('https://ntfy.sh/', timeout=30, json={
+        'topic': relay_topic(), 'message': json.dumps({'at': now_iso(), 'offers': offers}, ensure_ascii=False)}).raise_for_status()
+    log(f'Amazon-Relay: {len(offers)} Angebote an die Cloud übergeben')
+
+
+def amazon_from_relay():
+    r = requests.get(f'https://ntfy.sh/{relay_topic()}/json', params={'poll': '1', 'since': '12h'}, timeout=30)
+    r.raise_for_status()
+    msgs = [json.loads(line) for line in r.text.splitlines() if line.strip()]
+    msgs = [m for m in msgs if m.get('event') == 'message' and m.get('message', '').startswith('{')]
+    if not msgs:
+        raise RuntimeError('keine Amazon-Daten vom PC in den letzten 12 Std. (PC aus?)')
+    return json.loads(msgs[-1]['message'])['offers']
+
+
+def amazon_get():
+    """Wie ein Browser: erst Startseite (Cookies), dann Suche; bei 503 (Amazon bremst) kurz warten, max. 3 Versuche."""
+    h = {**HEADERS, 'Accept-Encoding': 'gzip, deflate', 'Upgrade-Insecure-Requests': '1',
+         'Sec-Fetch-Dest': 'document', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Site': 'none', 'Sec-Fetch-User': '?1'}
+    for attempt in range(3):
+        s = requests.Session()
+        s.headers.update(h)
+        s.get('https://www.amazon.de/', timeout=30)
+        time.sleep(2)
+        r = s.get('https://www.amazon.de/s?k=playstation+5+slim+disc&i=videogames', timeout=40,
+                  headers={'Referer': 'https://www.amazon.de/', 'Sec-Fetch-Site': 'same-origin'})
+        if r.status_code == 200 and 'data-asin' in r.text:
+            return r.text
+        time.sleep(20)
+    r.raise_for_status()
+    return r.text
+
+
+def amazon_scrape():
+    t = amazon_get()
     if 'data-asin' not in t:
         raise RuntimeError('Bot-Prüfung von Amazon – später wieder')
     out = []
@@ -658,7 +705,8 @@ def run(keys=None):
             offers.extend(o for o in old_by_source.get(key, []) if o['country'] not in done)
         if err:
             # Quelle gerade nicht erreichbar: letzte bekannte Angebote behalten
-            kept = old_by_source.get(key, [])
+            # (ausser Amazon in der Cloud: ohne frische PC-Daten waeren die Preise veraltet)
+            kept = [] if key == 'amazon' and IN_CLOUD else old_by_source.get(key, [])
             offers.extend(kept)
             state['sources'][key] = {'name': name, 'status': 'fehler', 'msg': err, 'count': len(kept), 'at': now}
             log(f'{key}: FEHLER {err}')
@@ -762,7 +810,12 @@ def main():
     ap.add_argument('--claude', action='store_true')
     ap.add_argument('--no-notify', action='store_true')
     ap.add_argument('--feeds', action='store_true', help='nur die Deal-Feeds abrufen (stuendlich)')
+    ap.add_argument('--amazon-relay', action='store_true', help='PC: Amazon abfragen und an die Cloud weiterreichen')
     a = ap.parse_args()
+    if a.amazon_relay:
+        if datetime.now().date().isoformat() <= CFG['until']:
+            amazon_relay_send()
+        return
     if datetime.now().date().isoformat() > CFG['until']:
         log('Suchzeitraum vorbei – nichts zu tun.')
         if a.claude:
