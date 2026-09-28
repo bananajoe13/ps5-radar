@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="900">
+<title>PS5-Radar</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #ffffff; --text: #1b1d22; --muted: #6b7280; --line: #e5e7eb;
+    --accent: #0b57d0; --good: #0a7d45; --good-bg: #e3f5eb; --warn: #9a5b00; --warn-bg: #fff3dc; --bad: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111317; --card: #1b1e24; --text: #e8eaed; --muted: #9aa0a6; --line: #2c3038;
+      --accent: #8ab4f8; --good: #6dd49b; --good-bg: #173325; --warn: #f1c26b; --warn-bg: #3a2c12; --bad: #f28b82; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 40px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 22px; margin: 0; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 18px 0; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .tile .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .tile .big { font-size: 28px; font-weight: 650; margin: 2px 0; font-variant-numeric: tabular-nums; }
+  .tile .small { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile.hit .big { color: var(--good); }
+  h2 { font-size: 15px; margin: 22px 0 8px; }
+  .list { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  a.row { display: grid; grid-template-columns: 88px 1fr; gap: 12px; padding: 12px 16px; color: inherit; text-decoration: none; border-top: 1px solid var(--line); }
+  a.row:first-child { border-top: 0; }
+  a.row:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+  .price { font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .price.hit { color: var(--good); }
+  .orig { font-size: 12px; color: var(--muted); }
+  .title { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .meta { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 99px; margin-right: 4px; vertical-align: 1px; }
+  .tag.new { background: var(--good-bg); color: var(--good); }
+  .tag.used { background: var(--warn-bg); color: var(--warn); }
+  .tag.deal { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
+  .empty { padding: 20px 16px; color: var(--muted); }
+  .other a.row { opacity: .8; }
+  .other .price.hit { color: inherit; }
+  .sources { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .src { font-size: 12px; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--line); background: var(--card); }
+  .src.ok::before { content: "● "; color: var(--good); }
+  .src.fehler::before { content: "● "; color: var(--bad); }
+  .src.aus::before { content: "○ "; color: var(--muted); }
+  footer { margin-top: 18px; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>🎮 PS5-Radar</h1>
+    <span class="sub" id="updated"></span>
+  </header>
+  <div class="tiles" id="tiles"></div>
+  <h2 id="listhead">Aktuelle Angebote</h2>
+  <div class="list" id="list"></div>
+  <h2>Sonstige Händler &amp; lokale Deals <span class="sub">(kein Alarm – Händler vor dem Kauf prüfen)</span></h2>
+  <div class="list other" id="other"></div>
+  <h2>Abgelaufene Deals <span class="sub">(letzte 45 Tage, zur Orientierung – nicht mehr erhältlich)</span></h2>
+  <div class="list other" id="expired"></div>
+  <h2>Letzte Alarme</h2>
+  <div class="list" id="alerts"></div>
+  <h2>Quellen</h2>
+  <div class="sources" id="sources"></div>
+  <footer id="foot"></footer>
+</main>
+<script src="data.js"></script>
+<script>
+(function () {
+  const D = window.PS5;
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const eur = v => v.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: v % 1 ? 2 : 0 });
+  const flag = c => ({ DE: '🇩🇪', AT: '🇦🇹', CH: '🇨🇭' }[c] || c);
+  function ago(iso) {
+    const h = (Date.now() - new Date(iso)) / 36e5;
+    if (h < 1) return 'vor ' + Math.max(1, Math.round(h * 60)) + ' Min.';
+    if (h < 48) return 'vor ' + Math.round(h) + ' Std.';
+    return 'vor ' + Math.round(h / 24) + ' Tagen';
+  }
+  if (!D) { $('list').innerHTML = '<div class="empty">Noch keine Daten – der erste Abruf läuft noch.</div>'; return; }
+  const cfg = D.config;
+  const fmt = iso => new Date(iso).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
+  $('updated').textContent = 'Shops: ' + fmt(D.last_run) + ' · Deals: ' + ago(D.last_feed_run || D.last_run);
+
+  const official = D.shown.filter(o => o.trusted && !o.local);
+  const other = D.shown.filter(o => !(o.trusted && !o.local));
+  // Bestpreis nur aus DE/AT: CH-Preise sind ohne Zoll/Einfuhrumsatzsteuer und daher nicht vergleichbar
+  const best = official.find(o => o.condition === 'neu' && o.country !== 'CH');
+  const bestUsed = official.find(o => o.condition === 'gebraucht' && o.country !== 'CH');
+  const tile = (label, o, extra) => o
+    ? `<div class="tile ${o.price_eur < cfg.alert_below_eur ? 'hit' : ''}"><div class="label">${label}</div><div class="big">${eur(o.price_eur)}</div><div class="small" title="${esc(o.title)}">${flag(o.country)} ${esc(o.shop)}${extra ? ' · ' + extra : ''}</div></div>`
+    : `<div class="tile"><div class="label">${label}</div><div class="big">–</div><div class="small">nichts im Rahmen</div></div>`;
+  $('tiles').innerHTML =
+    tile('Bestpreis neu', best) +
+    tile('Tiefstpreis seit Start', D.lowest, D.lowest ? ago(D.lowest.at) : '') +
+    tile(`Gebraucht ≤ ${cfg.used_max_eur} €`, bestUsed) +
+    `<div class="tile"><div class="label">Alarm unter</div><div class="big">${eur(cfg.alert_below_eur)}</div><div class="small">läuft bis ${new Date(cfg.until).toLocaleDateString('de-DE')}</div></div>`;
+
+  const row = o => {
+    const orig = o.currency && o.currency !== 'EUR'
+      ? `<div class="orig">${o.price.toFixed(2)} ${o.currency}</div>` + (o.country === 'CH' ? `<div class="orig">≈ ${eur(Math.round(o.price_eur * 1.19))} inkl. EUSt</div>` : '')
+      : '';
+    const tags = (o.is_new ? '<span class="tag new">NEU</span>' : '') +
+      (o.condition === 'gebraucht' ? '<span class="tag used">gebraucht</span>' : '') +
+      (o.kind === 'deal' ? '<span class="tag deal">Deal</span>' : '') +
+      (o.local ? '<span class="tag used">nur im Laden</span>' : '');
+    const when = o.kind === 'deal' && o.posted ? 'gepostet ' + ago(o.posted) : 'gefunden ' + ago(o.first_seen || o.at);
+    return `<a class="row" href="${esc(o.url)}" target="_blank" rel="noopener">
+      <div><div class="price ${o.price_eur < cfg.alert_below_eur ? 'hit' : ''}">${eur(o.price_eur)}</div>${orig}</div>
+      <div><div class="title">${tags}${esc(o.title)}</div>
+      <div class="meta">${flag(o.country)} ${esc(o.shop)} · ${when}${o.note ? ' · ' + esc(o.note) : ''}</div></div></a>`;
+  };
+  $('listhead').textContent = `Offizielle Händler (neu ≤ ${cfg.show_max_eur} €, gebraucht ≤ ${cfg.used_max_eur} €)`;
+  $('list').innerHTML = official.length ? official.map(row).join('') : '<div class="empty">Gerade nichts im Preisrahmen.</div>';
+  $('other').innerHTML = other.length ? other.map(row).join('') : '<div class="empty">Nichts.</div>';
+  const exp = D.expired || [];
+  $('expired').innerHTML = exp.length ? exp.map(o => row({ ...o, is_new: false })).join('') : '<div class="empty">Keine.</div>';
+  const al = (D.alerts || []).slice().reverse();
+  $('alerts').innerHTML = al.length ? al.map(a => row({ ...a, kind: '', is_new: false })).join('') : `<div class="empty">Noch kein Angebot unter ${eur(cfg.alert_below_eur)}.</div>`;
+  $('sources').innerHTML = Object.values(D.sources).map(s =>
+    `<span class="src ${s.status}" title="${esc(s.msg)}">${esc(s.name)}${s.status === 'ok' ? ' · ' + s.count : s.status === 'aus' ? ' · aus' : ' · Fehler'}</span>`).join('');
+  $('foot').textContent = `Deal-Feeds (mydealz, preisjaeger, preispirat) stündlich; Shops (Amazon, MediaMarkt, Saturn, OTTO, Müller, Alternate, PlayStation Direct, rebuy, billiger.de mit allen Händlern, ricardo, Google Shopping über SerpApi) alle 8 Std. Gleiche Angebote aus mehreren Quellen sind zusammengefasst, Ausverkauftes ist ausgeblendet. Alarm nur bei offiziellen Händlern. CHF-Kurs: 1 € = ${D.rate_chf_per_eur} CHF (ohne Zoll/Einfuhrumsatzsteuer). Seite lädt sich alle 15 Min. neu.`;
+})();
+</script>
+</body>
+</html>

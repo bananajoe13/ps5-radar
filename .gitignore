@@ -1,0 +1,6 @@
+# Zugangsdaten - niemals hochladen
+secrets.json
+# nur lokal
+ps5.log
+ps5.lock
+__pycache__/

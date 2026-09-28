@@ -1,0 +1,15 @@
+{
+  "alert_below_eur": 550,
+  "deal_alert_below_eur": 600,
+  "show_max_eur": 650,
+  "used_max_eur": 420,
+  "until": "2026-11-30",
+  "deal_days": 45,
+  "stale_hours": 5.75,
+  "chf_per_eur_fallback": 0.94,
+  "alert_only_trusted": true,
+  "alert_local": false,
+  "suspicious_below_eur": 450,
+  "serpapi_monthly_limit": 90,
+  "serpapi_every_n_runs": 2
+}
