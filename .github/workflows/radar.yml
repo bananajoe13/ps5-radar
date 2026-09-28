@@ -1,0 +1,59 @@
+# PS5-Radar in der Cloud (ohne PC, ohne Claude).
+# Stuendlich: Deal-Feeds (mydealz, preisjaeger, preispirat). Alle 6 Std. automatisch zusaetzlich alle Shops.
+# Zustand und Online-Seite liegen nur verschluesselt im Zweig "data" (wird bei jedem Lauf komplett ersetzt).
+# Benoetigte Secrets: PAGE_PASSWORD (Seiten-Passwort, >= 12 Zeichen), NTFY_TOPIC (Handy-Push), SERPAPI_KEY (optional).
+name: PS5-Radar
+
+on:
+  schedule:
+    - cron: '17 * * * *'   # jede Stunde (UTC); GitHub startet geplante Laeufe oft einige Minuten spaeter
+  workflow_dispatch:        # "Run workflow" fuer einen Lauf von Hand
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ps5-radar
+  cancel-in-progress: false
+
+jobs:
+  radar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install -r requirements.txt
+
+      - name: Zustand laden
+        env:
+          PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+        run: |
+          if git fetch --depth=1 origin data 2>/dev/null; then git show origin/data:state.bin > state.bin || true; fi
+          python cloud.py pull
+
+      - name: Radar-Lauf
+        env:
+          SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
+          TZ: Europe/Berlin
+        run: python ps5.py --feeds
+
+      - name: Verschluesselt veroeffentlichen
+        env:
+          PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+        run: |
+          python cloud.py push
+          cd site
+          git init -q -b data
+          git config user.name "ps5-radar-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Update"
+          git push -q --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data
