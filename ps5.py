@@ -583,6 +583,8 @@ TRUSTED = re.compile(
 
 WATCH_EMPTY = ('amazon', 'mediamarkt', 'saturn', 'otto', 'billiger', 'mueller', 'alternate')  # liefern sonst immer Treffer
 FEEDS = ('mydealz', 'preisjaeger', 'preispirat')  # leichte RSS-Feeds: stuendlich (--feeds)
+if IN_CLOUD:
+    FEEDS += ('amazon',)  # in der Cloud nur das Lesen der PC-Daten (ntfy) - kostet nichts, daher auch stuendlich
 # Beim Zusammenfassen gleicher Angebote gewinnt die direktere Quelle
 PRIORITY = {'billiger': 1, 'google': 2, 'ricardo': 2, 'ebay': 2, 'mydealz': 3, 'preisjaeger': 3, 'preispirat': 3}
 
