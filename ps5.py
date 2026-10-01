@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 import requests
 
@@ -548,10 +548,17 @@ def google_shopping():
         out.append(offer(id=it.get('product_id') or it.get('link') or title, source='google', country=country,
                          shop=it.get('source') or 'Google Shopping', title=title, price=float(price),
                          currency='CHF' if country == 'CH' else 'EUR',
-                         url=it.get('link') or it.get('product_link') or '',
+                         url=google_link(country, title, it.get('source') or ''),
                          condition='gebraucht' if used else 'neu',
                          note='über Google Shopping' + (f" · {it['second_hand_condition']}" if it.get('second_hand_condition') else '')))
     return out
+
+
+def google_link(country, title, shop):
+    """Stabiler Link: Google-Shopping-Suche nach Produkt + Haendler. Die Produktlinks von SerpApi
+    (google.../search?ibp=oshop&prds=...) laufen ab bzw. sind kaputt kodiert und enden auf einer 404-Seite."""
+    tld = {'DE': 'de', 'AT': 'at', 'CH': 'ch'}.get(country, 'de')
+    return f'https://www.google.{tld}/search?' + urlencode({'tbm': 'shop', 'hl': 'de', 'q': f'{title} {shop}'.strip()})
 
 
 SOURCES = {
@@ -739,6 +746,8 @@ def run(keys=None):
         log(f'{key}: {len(uniq)} PS5-Angebote')
 
     for o in offers:  # aeltere gespeicherte Angebote ohne diese Felder
+        if o['source_key'] == 'google' and 'ibp=oshop' in o.get('url', ''):
+            o['url'] = google_link(o['country'], o['title'], o['shop'])  # alte, kaputte Google-Links ersetzen
         o.setdefault('trusted', is_trusted(o))
         o.setdefault('local', bool(re.search(r'\blokal', o['title'] + ' ' + o['note'], re.I)))
     before = len(offers)
