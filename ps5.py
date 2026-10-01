@@ -98,7 +98,7 @@ def is_ps5_with_drive(title):
     if not PS5.search(t) or not CONSOLE.search(t) or ACCESSORY.search(t):
         return False
     has_drive = re.search(r'disc|disk|laufwerk|standard', t, re.I)
-    if re.search(r'digital|digi\.', t, re.I) and not has_drive:
+    if re.search(r'digital|digi\.|num[ée]rique', t, re.I) and not has_drive:  # auch FR/IT (numérique, digitale)
         return False
     if re.search(r'\bpro\b', t, re.I) and not re.search(r'laufwerk', t, re.I):
         return False
@@ -466,9 +466,14 @@ def ricardo():
         aid, title, cond, bn, rest = m.groups()
         if cond != 'new' or bn == 'null' or not is_ps5_with_drive(title):
             continue
+        # Versandoptionen; "get_by_buyer" = nur Abholung -> nicht versendbar, auslassen
+        ships = [(k, float(c)) for k, c in re.findall(r'\{"key":"([^"]+)","cost":([\d.]+)', rest)]
+        posted = [c for k, c in ships if k != 'get_by_buyer']
+        if ships and not posted:
+            continue
         ship = re.search(r'"shipping":\[\{"key":"[^"]+","cost":([\d.]+)', rest)
         out.append(offer(id=aid, source='ricardo', shop='ricardo.ch', country='CH', title=title,
-                         price=float(bn) + (float(ship.group(1)) if ship else 0), currency='CHF',
+                         price=float(bn) + (min(posted) if posted else 0), currency='CHF',
                          url=f'https://www.ricardo.ch/de/a/{aid}/', note='Marktplatz, neu, inkl. Versand'))
     return out
 
