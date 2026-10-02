@@ -34,6 +34,8 @@
   .price { font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
   .price.hit { color: var(--good); }
   .orig { font-size: 12px; color: var(--muted); }
+  .orig.down { color: var(--good); font-weight: 600; }
+  .orig.up { color: var(--bad); }
   .title { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   .meta { font-size: 13px; color: var(--muted); margin-top: 2px; }
   .tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 99px; margin-right: 4px; vertical-align: 1px; }
@@ -111,9 +113,17 @@
       (o.condition === 'gebraucht' ? '<span class="tag used">gebraucht</span>' : '') +
       (o.kind === 'deal' ? '<span class="tag deal">Deal</span>' : '') +
       (o.local ? '<span class="tag used">nur im Laden</span>' : '');
-    const when = o.kind === 'deal' && o.posted ? 'gepostet ' + ago(o.posted) : 'gefunden ' + ago(o.first_seen || o.at);
+    // Zeitangaben: wann zuletzt geprueft, seit wann im Radar (bzw. wann der Deal gepostet / der Alarm kam)
+    const parts = [];
+    if (o.kind === 'deal' && o.posted) parts.push('gepostet ' + ago(o.posted));
+    if (o.checked) parts.push('geprüft ' + ago(o.checked));
+    if (o.first_seen && o.kind !== 'deal' && (Date.now() - new Date(o.first_seen)) > 864e5) parts.push('im Radar seit ' + ago(o.first_seen).replace('vor ', ''));
+    if (!parts.length && o.at) parts.push('gemeldet ' + ago(o.at));
+    const when = parts.join(' · ');
+    const change = o.prev_eur && Math.abs(o.prev_eur - o.price_eur) >= 1
+      ? `<div class="orig ${o.price_eur < o.prev_eur ? 'down' : 'up'}" title="geändert ${esc(ago(o.changed_at))}">${o.price_eur < o.prev_eur ? '↓' : '↑'} vorher ${eur(o.prev_eur)}</div>` : '';
     return `<a class="row" href="${esc(o.url)}" target="_blank" rel="noopener">
-      <div><div class="price ${o.price_eur < cfg.alert_below_eur ? 'hit' : ''}">${eur(o.price_eur)}</div>${orig}</div>
+      <div><div class="price ${o.price_eur < cfg.alert_below_eur ? 'hit' : ''}">${eur(o.price_eur)}</div>${change}${orig}</div>
       <div><div class="title">${tags}${esc(o.title)}</div>
       <div class="meta">${flag(o.country)} ${esc(o.shop)} · ${when}${o.note ? ' · ' + esc(o.note) : ''}</div></div></a>`;
   };

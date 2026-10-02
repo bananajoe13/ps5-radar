@@ -737,6 +737,7 @@ def run(keys=None):
             if not o['trusted'] and o['condition'] == 'neu' and o['price_eur'] < CFG.get('suspicious_below_eur', 450):
                 o['note'] = ('⚠ Preis auffällig niedrig – möglicher Fake-Shop. ' + o['note']).strip()
             o['local'] = bool(re.search(r'\blokal', o['title'] + ' ' + o['note'], re.I))
+            o['checked'] = now  # zuletzt live geprueft (behaltene Angebote nicht abgefragter Quellen behalten ihr altes Datum)
             if o['key'] not in uniq or o['price_eur'] < uniq[o['key']]['price_eur']:
                 uniq[o['key']] = o
         offers.extend(uniq.values())
@@ -755,6 +756,7 @@ def run(keys=None):
             o['url'] = google_link(o['country'], o['title'], o['shop'])  # alte, kaputte Google-Links ersetzen
         o.setdefault('trusted', is_trusted(o))
         o.setdefault('local', bool(re.search(r'\blokal', o['title'] + ' ' + o['note'], re.I)))
+        o.setdefault('checked', state.get('last_run') or o.get('first_seen') or now)  # Altbestand ohne Pruefzeit
     before = len(offers)
     offers = dedupe(offers)
     if before != len(offers):
@@ -779,8 +781,16 @@ def run(keys=None):
         o['is_new'] = not seen
         if seen:
             seen['min_eur'] = min(seen['min_eur'], o['price_eur'])
+            # Preisaenderung seit der letzten Pruefung merken (Anzeige "vorher X €" fuer 7 Tage)
+            # Vergleich in Originalwaehrung, damit CHF-Preise nicht durch den Wechselkurs "springen"
+            last = seen.get('last_price')
+            if last is not None and abs(last - o['price']) >= 1:
+                seen['prev_eur'], seen['changed_at'] = seen.get('last_eur', o['price_eur']), now
+            seen['last_price'], seen['last_eur'] = o['price'], o['price_eur']
+            if seen.get('changed_at') and datetime.fromisoformat(now) - datetime.fromisoformat(seen['changed_at']) < timedelta(days=7):
+                o['prev_eur'], o['changed_at'] = seen['prev_eur'], seen['changed_at']
         else:
-            state['seen'][o['key']] = {'first_seen': now, 'min_eur': o['price_eur']}
+            state['seen'][o['key']] = {'first_seen': now, 'min_eur': o['price_eur'], 'last_eur': o['price_eur'], 'last_price': o['price']}
         alerted = state['seen'][o['key']].get('alerted_eur')
         wanted = (o['trusted'] or not CFG.get('alert_only_trusted', True)) and (not o['local'] or CFG.get('alert_local', False)) and fresh(o)
         # Deals (mydealz & Co.) von offiziellen Haendlern melden schon unter deal_alert_below_eur (z. B. OTTO + Gutschein)
