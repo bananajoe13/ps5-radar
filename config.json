@@ -11,5 +11,6 @@
   "alert_local": false,
   "suspicious_below_eur": 450,
   "serpapi_monthly_limit": 90,
-  "serpapi_every_n_runs": 2
+  "serpapi_every_n_runs": 2,
+  "page_salt": "e9ce6bbfcbc5cefebaa78bef33e10ad8"
 }

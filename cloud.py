@@ -84,8 +84,15 @@ def key_for(pw, salt):
     return PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=ITERATIONS).derive(pw.encode('utf-8'))
 
 
+def page_salt():
+    # Festes Salz (nicht geheim): nur so bleibt der im Browser gemerkte Schluessel ueber die Laeufe hinweg gueltig.
+    # Ein neues Salz pro Lauf wuerde jede Stunde eine erneute Passworteingabe erzwingen.
+    cfg = json.loads((ROOT / 'config.json').read_text(encoding='utf-8'))
+    return bytes.fromhex(cfg['page_salt']) if cfg.get('page_salt') else os.urandom(16)
+
+
 def encrypt(pw, data):
-    salt, iv = os.urandom(16), os.urandom(12)
+    salt, iv = page_salt(), os.urandom(12)
     return salt + iv + AESGCM(key_for(pw, salt)).encrypt(iv, gzip.compress(data, 9), None)
 
 
