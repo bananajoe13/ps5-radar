@@ -1,12 +1,14 @@
 # PS5-Radar in der Cloud (ohne PC, ohne Claude).
-# Stuendlich: Deal-Feeds (mydealz, preisjaeger, preispirat). Alle 6 Std. automatisch zusaetzlich alle Shops.
+# Mehrmals pro Stunde: Deal-Feeds (mydealz, preisjaeger, preispirat). Alle 6 Std. automatisch zusaetzlich alle Shops.
 # Zustand und Online-Seite liegen nur verschluesselt im Zweig "data" (wird bei jedem Lauf komplett ersetzt).
 # Benoetigte Secrets: PAGE_PASSWORD (Seiten-Passwort, >= 12 Zeichen), NTFY_TOPIC (Handy-Push), SERPAPI_KEY (optional).
 name: PS5-Radar
 
 on:
   schedule:
-    - cron: '17 * * * *'   # jede Stunde (UTC); GitHub startet geplante Laeufe oft einige Minuten spaeter
+    # 4x pro Stunde: GitHub fuehrt geplante Laeufe nur "best effort" aus und laesst bei Last einzelne ausfallen.
+    # Mehr Anlaeufe = weniger Luecken. Shops werden trotzdem nur alle ~6 Std. abgefragt (stale_hours in config.json).
+    - cron: '7,22,37,52 * * * *'
   workflow_dispatch:        # "Run workflow" fuer einen Lauf von Hand
 
 permissions:
