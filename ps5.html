@@ -51,6 +51,14 @@
   .src.fehler::before { content: "● "; color: var(--bad); }
   .src.aus::before { content: "○ "; color: var(--muted); }
   footer { margin-top: 18px; font-size: 12px; color: var(--muted); }
+  a.row { position: relative; padding-right: 44px; }
+  .hide { position: absolute; top: 10px; right: 10px; width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 8px;
+          background: var(--card); color: var(--muted); font: inherit; font-size: 15px; line-height: 1; cursor: pointer; }
+  .hide:hover { color: var(--bad); border-color: var(--bad); }
+  .hide.restore { width: auto; padding: 0 9px; font-size: 12px; }
+  .hide.restore:hover { color: var(--good); border-color: var(--good); }
+  .pending { font-size: 11px; color: var(--warn); }
+  details.hiddenbox summary { cursor: pointer; color: var(--muted); font-size: 14px; margin: 22px 0 8px; }
 </style>
 </head>
 <body>
@@ -68,6 +76,10 @@
   <div class="list other" id="expired"></div>
   <h2>Letzte Alarme</h2>
   <div class="list" id="alerts"></div>
+  <details class="hiddenbox" id="hiddenbox">
+    <summary id="hiddensum">Ausgeblendete Angebote</summary>
+    <div class="list other" id="hidden"></div>
+  </details>
   <h2>Quellen</h2>
   <div class="sources" id="sources"></div>
   <footer id="foot"></footer>
@@ -91,22 +103,38 @@
   const fmt = iso => new Date(iso).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
   $('updated').textContent = 'Shops: ' + fmt(D.last_run) + ' · Deals: ' + ago(D.last_feed_run || D.last_run);
 
-  const official = D.shown.filter(o => o.trusted && !o.local);
-  const other = D.shown.filter(o => !(o.trusted && !o.local));
-  // Bestpreis nur aus DE/AT: CH-Preise sind ohne Zoll/Einfuhrumsatzsteuer und daher nicht vergleichbar
-  const best = official.find(o => o.condition === 'neu' && o.country !== 'CH');
-  const bestUsed = official.find(o => o.condition === 'gebraucht' && o.country !== 'CH');
-  const tile = (label, o, extra) => o
-    ? `<div class="tile ${o.price_eur < cfg.alert_below_eur ? 'hit' : ''}"><div class="label">${label}</div><div class="big">${eur(o.price_eur)}</div><div class="small" title="${esc(o.title)}">${flag(o.country)} ${esc(o.shop)}${extra ? ' · ' + extra : ''}</div></div>`
-    : `<div class="tile"><div class="label">${label}</div><div class="big">–</div><div class="small">nichts im Rahmen</div></div>`;
-  $('tiles').innerHTML =
-    tile('Bestpreis neu', best) +
-    tile('Tiefstpreis seit Start', D.lowest, D.lowest ? ago(D.lowest.at) : '') +
-    tile(`Gebraucht ≤ ${cfg.used_max_eur} €`, bestUsed) +
-    `<div class="tile"><div class="label">Alarm unter</div><div class="big">${eur(cfg.alert_below_eur)}</div><div class="small">läuft bis ${new Date(cfg.until).toLocaleDateString('de-DE')}</div></div>`;
+  // ---- Ausblenden (geraeteuebergreifend): Klick -> ntfy-Kanal -> naechster Cloud-Lauf uebernimmt es dauerhaft.
+  // Bis dahin merkt sich dieses Geraet die Aenderung selbst ("pending"), damit sie sofort sichtbar ist.
+  const PKEY = 'ps5-pending';
+  const loadPending = () => { try { return JSON.parse(localStorage.getItem(PKEY) || '{}'); } catch (e) { return {}; } };
+  const savePending = p => { try { localStorage.setItem(PKEY, JSON.stringify(p)); } catch (e) {} };
+  const cloudHidden = D.hidden || {};
+  let pending = loadPending();
+  // Bestaetigte Aenderungen aufraeumen: ein Cloud-Lauf nach dem Klick hat sie uebernommen
+  const lastCloud = new Date(D.last_feed_run || D.last_run).getTime();
+  for (const [k, p] of Object.entries(pending)) {
+    const done = p.action === 'hide' ? !!cloudHidden[k] : !cloudHidden[k];
+    if (done && lastCloud > p.at) delete pending[k];
+  }
+  const send = (action, o) => fetch('https://ntfy.sh/', { method: 'POST', body: JSON.stringify({
+    topic: D.hide_topic, message: JSON.stringify({ action, key: o.key, title: (o.title || '').slice(0, 120), shop: o.shop, country: o.country, price_eur: o.price_eur }) }) });
+  // Nicht bestaetigte Aenderungen nach 20 Min. erneut senden (falls ein Cloud-Lauf ausgefallen ist)
+  for (const p of Object.values(pending)) if (D.hide_topic && Date.now() - (p.sent || p.at) > 12e5) { p.sent = Date.now(); send(p.action, p.o).catch(() => {}); }
+  savePending(pending);
+  const isHidden = k => pending[k] ? pending[k].action === 'hide' : !!cloudHidden[k];
 
-  const row = o => {
-    const orig = o.currency && o.currency !== 'EUR'
+  function setHidden(o, hide) {
+    pending[o.key] = { action: hide ? 'hide' : 'show', at: Date.now(), sent: Date.now(),
+                       o: { key: o.key, title: o.title, shop: o.shop, country: o.country, price_eur: o.price_eur } };
+    savePending(pending);
+    if (D.hide_topic) send(hide ? 'hide' : 'show', o).catch(() => {});
+    render();
+  }
+
+  const byKey = {};
+  const row = (o, mode) => {
+    if (mode !== 'hidden' && mode !== 'alert') byKey[o.key] = o;
+    const orig = o.currency && o.currency !== 'EUR' && typeof o.price === 'number'
       ? `<div class="orig">${o.price.toFixed(2)} ${o.currency}</div>` + (o.country === 'CH' ? `<div class="orig">≈ ${eur(Math.round(o.price_eur * 1.19))} inkl. EUSt</div>` : '')
       : '';
     const tags = (o.is_new ? '<span class="tag new">NEU</span>' : '') +
@@ -118,25 +146,69 @@
     if (o.kind === 'deal' && o.posted) parts.push('gepostet ' + ago(o.posted));
     if (o.checked) parts.push('geprüft ' + ago(o.checked));
     if (o.first_seen && o.kind !== 'deal' && (Date.now() - new Date(o.first_seen)) > 864e5) parts.push('im Radar seit ' + ago(o.first_seen).replace('vor ', ''));
-    if (!parts.length && o.at) parts.push('gemeldet ' + ago(o.at));
+    if (!parts.length && o.at) parts.push((mode === 'hidden' ? 'ausgeblendet ' : 'gemeldet ') + ago(o.at));
     const when = parts.join(' · ');
     const change = o.prev_eur && Math.abs(o.prev_eur - o.price_eur) >= 1
       ? `<div class="orig ${o.price_eur < o.prev_eur ? 'down' : 'up'}" title="geändert ${esc(ago(o.changed_at))}">${o.price_eur < o.prev_eur ? '↓' : '↑'} vorher ${eur(o.prev_eur)}</div>` : '';
-    return `<a class="row" href="${esc(o.url)}" target="_blank" rel="noopener">
-      <div><div class="price ${o.price_eur < cfg.alert_below_eur ? 'hit' : ''}">${eur(o.price_eur)}</div>${change}${orig}</div>
+    const btn = !o.key || !D.hide_topic || mode === 'alert' ? ''
+      : mode === 'hidden' ? `<button class="hide restore" data-key="${esc(o.key)}" data-act="show" title="wieder einblenden">einblenden</button>`
+      : `<button class="hide" data-key="${esc(o.key)}" data-act="hide" title="ausblenden (auf allen Geräten)">✕</button>`;
+    const pend = pending[o.key] && mode !== 'alert' ? ' · <span class="pending">wird auf allen Geräten übernommen …</span>' : '';
+    const price = typeof o.price_eur === 'number' ? eur(o.price_eur) : '–';
+    return `<a class="row" href="${esc(o.url || '#')}" target="_blank" rel="noopener">
+      <div><div class="price ${o.price_eur < cfg.alert_below_eur ? 'hit' : ''}">${price}</div>${change}${orig}</div>
       <div><div class="title">${tags}${esc(o.title)}</div>
-      <div class="meta">${flag(o.country)} ${esc(o.shop)} · ${when}${o.note ? ' · ' + esc(o.note) : ''}</div></div></a>`;
+      <div class="meta">${flag(o.country)} ${esc(o.shop)}${when ? ' · ' + when : ''}${o.note ? ' · ' + esc(o.note) : ''}${pend}</div></div>${btn}</a>`;
   };
-  $('listhead').textContent = `Offizielle Händler (neu ≤ ${cfg.show_max_eur} €, gebraucht ≤ ${cfg.used_max_eur} €)`;
-  $('list').innerHTML = official.length ? official.map(row).join('') : '<div class="empty">Gerade nichts im Preisrahmen.</div>';
-  $('other').innerHTML = other.length ? other.map(row).join('') : '<div class="empty">Nichts.</div>';
-  const exp = D.expired || [];
-  $('expired').innerHTML = exp.length ? exp.map(o => row({ ...o, is_new: false })).join('') : '<div class="empty">Keine.</div>';
-  const al = (D.alerts || []).slice().reverse();
-  $('alerts').innerHTML = al.length ? al.map(a => row({ ...a, kind: '', is_new: false })).join('') : `<div class="empty">Noch kein Angebot unter ${eur(cfg.alert_below_eur)}.</div>`;
+
+  document.addEventListener('click', e => {
+    const b = e.target.closest('button.hide');
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    const k = b.dataset.key;
+    const o = byKey[k] || cloudHidden[k] || (pending[k] && pending[k].o);
+    if (o) setHidden({ ...o, key: k }, b.dataset.act === 'hide');
+  }, true);
+
+  function render() {
+    // sichtbar = Anzeige-Liste + von der Cloud ausgeblendete, die hier gerade wieder eingeblendet wurden
+    const visible = D.shown.concat(D.hidden_offers || []).filter(o => !isHidden(o.key)).sort((a, b) => a.price_eur - b.price_eur);
+    const official = visible.filter(o => o.trusted && !o.local);
+    const other = visible.filter(o => !(o.trusted && !o.local));
+    // Bestpreis nur aus DE/AT: CH-Preise sind ohne Zoll/Einfuhrumsatzsteuer und daher nicht vergleichbar
+    const best = official.find(o => o.condition === 'neu' && o.country !== 'CH');
+    const bestUsed = official.find(o => o.condition === 'gebraucht' && o.country !== 'CH');
+    const tile = (label, o, extra) => o
+      ? `<div class="tile ${o.price_eur < cfg.alert_below_eur ? 'hit' : ''}"><div class="label">${label}</div><div class="big">${eur(o.price_eur)}</div><div class="small" title="${esc(o.title)}">${flag(o.country)} ${esc(o.shop)}${extra ? ' · ' + extra : ''}</div></div>`
+      : `<div class="tile"><div class="label">${label}</div><div class="big">–</div><div class="small">nichts im Rahmen</div></div>`;
+    $('tiles').innerHTML =
+      tile('Bestpreis neu', best) +
+      tile('Tiefstpreis seit Start', D.lowest, D.lowest ? ago(D.lowest.at) : '') +
+      tile(`Gebraucht ≤ ${cfg.used_max_eur} €`, bestUsed) +
+      `<div class="tile"><div class="label">Alarm unter</div><div class="big">${eur(cfg.alert_below_eur)}</div><div class="small">läuft bis ${new Date(cfg.until).toLocaleDateString('de-DE')}</div></div>`;
+
+    $('listhead').textContent = `Offizielle Händler (neu ≤ ${cfg.show_max_eur} €, gebraucht ≤ ${cfg.used_max_eur} €)`;
+    $('list').innerHTML = official.length ? official.map(o => row(o)).join('') : '<div class="empty">Gerade nichts im Preisrahmen.</div>';
+    $('other').innerHTML = other.length ? other.map(o => row(o)).join('') : '<div class="empty">Nichts.</div>';
+    const exp = (D.expired || []).filter(o => !isHidden(o.key));
+    $('expired').innerHTML = exp.length ? exp.map(o => row({ ...o, is_new: false })).join('') : '<div class="empty">Keine.</div>';
+    const al = (D.alerts || []).slice().reverse();
+    $('alerts').innerHTML = al.length ? al.map(a => row({ ...a, kind: '', is_new: false }, 'alert')).join('') : `<div class="empty">Noch kein Angebot unter ${eur(cfg.alert_below_eur)}.</div>`;
+
+    // Ausgeblendete: aus der Cloud + noch nicht uebernommene Klicks dieses Geraets
+    const hid = {};
+    for (const [k, h] of Object.entries(cloudHidden)) if (isHidden(k)) hid[k] = { ...h, key: k };
+    for (const [k, p] of Object.entries(pending)) if (p.action === 'hide') hid[k] = { ...(byKey[k] || p.o), key: k, at: new Date(p.at).toISOString() };
+    const hl = Object.values(hid).sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    $('hiddensum').textContent = `Ausgeblendete Angebote (${hl.length})`;
+    $('hiddenbox').style.display = hl.length ? '' : 'none';
+    $('hidden').innerHTML = hl.map(h => row({ ...h, is_new: false, checked: null, first_seen: null, kind: '', prev_eur: null }, 'hidden')).join('');
+  }
+  render();
+
   $('sources').innerHTML = Object.values(D.sources).map(s =>
     `<span class="src ${s.status}" title="${esc(s.msg)}">${esc(s.name)}${s.status === 'ok' ? ' · ' + s.count : s.status === 'aus' ? ' · aus' : ' · Fehler'}</span>`).join('');
-  $('foot').textContent = `Deal-Feeds (mydealz, preisjaeger, preispirat) stündlich; Shops (Amazon, MediaMarkt, Saturn, OTTO, Müller, Alternate, PlayStation Direct, rebuy, billiger.de mit allen Händlern, ricardo, Google Shopping über SerpApi) alle 8 Std. Gleiche Angebote aus mehreren Quellen sind zusammengefasst, Ausverkauftes ist ausgeblendet. Alarm nur bei offiziellen Händlern. CHF-Kurs: 1 € = ${D.rate_chf_per_eur} CHF (ohne Zoll/Einfuhrumsatzsteuer). Seite lädt sich alle 15 Min. neu.`;
+  $('foot').textContent = `Deal-Feeds (mydealz, preisjaeger, preispirat) mehrmals pro Stunde; Shops (Amazon, MediaMarkt, Saturn, OTTO, Müller, Alternate, PlayStation Direct, rebuy, billiger.de mit allen Händlern, ricardo, Google Shopping über SerpApi) alle ~6 Std. Gleiche Angebote aus mehreren Quellen sind zusammengefasst, Ausverkauftes ist ausgeblendet. Mit ✕ blendest du ein Angebot auf allen Geräten aus (dann auch kein Alarm). Alarm nur bei offiziellen Händlern. CHF-Kurs: 1 € = ${D.rate_chf_per_eur} CHF (ohne Zoll/Einfuhrumsatzsteuer). Seite lädt sich alle 15 Min. neu.`;
 })();
 </script>
 </body>

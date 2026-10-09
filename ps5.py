@@ -648,6 +648,48 @@ def notify(title, text, url):
             log(f'Windows-Meldung fehlgeschlagen: {e}')
 
 
+def hide_topic():
+    """Geheimer ntfy-Kanal, ueber den die Seite "ausblenden"/"einblenden" an die Cloud meldet."""
+    return CFG['ntfy_topic'] + '-hide' if CFG.get('ntfy_topic') else ''
+
+
+def sync_hidden(state):
+    """Aus-/Einblend-Befehle der Seite von ntfy holen und dauerhaft im Zustand speichern.
+    ntfy haelt Nachrichten nur ca. 12 Std. - deshalb wird alles sofort in state['hidden'] uebernommen."""
+    hidden = state.setdefault('hidden', {})
+    topic = hide_topic()
+    if not topic:
+        return hidden
+    try:
+        r = requests.get(f'https://ntfy.sh/{topic}/json', params={'poll': '1', 'since': 'all'}, timeout=30)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        log(f'Ausblendliste nicht lesbar: {e}')
+        return hidden
+    done = state.setdefault('hidden_msgs', [])  # bereits verarbeitete ntfy-Nachrichten
+    for line in r.text.splitlines():
+        try:
+            m = json.loads(line)
+            cmd = json.loads(m.get('message', '')) if m.get('event') == 'message' else None
+        except ValueError:
+            continue
+        if not cmd or m['id'] in done or not isinstance(cmd, dict) or not cmd.get('key'):
+            continue
+        done.append(m['id'])
+        key = str(cmd['key'])[:200]
+        if cmd.get('action') == 'hide':
+            at = datetime.fromtimestamp(int(m.get('time', time.time())), timezone.utc).astimezone().isoformat(timespec='seconds')
+            hidden[key] = {'at': at, 'title': str(cmd.get('title', ''))[:120], 'shop': str(cmd.get('shop', ''))[:60],
+                           'country': str(cmd.get('country', ''))[:2],
+                           'price_eur': cmd.get('price_eur') if isinstance(cmd.get('price_eur'), (int, float)) else None}
+            log(f'ausgeblendet: {key}')
+        elif cmd.get('action') == 'show':
+            hidden.pop(key, None)
+            log(f'wieder eingeblendet: {key}')
+    state['hidden_msgs'] = done[-500:]
+    return hidden
+
+
 def norm_shop(s):
     s = re.sub(r'\(.*?\)', '', (s or '').lower())
     s = re.sub(r'\.(de|at|ch|com|net|eu)\b', '', s)
@@ -757,15 +799,22 @@ def run(keys=None):
         o.setdefault('trusted', is_trusted(o))
         o.setdefault('local', bool(re.search(r'\blokal', o['title'] + ' ' + o['note'], re.I)))
         o.setdefault('checked', state.get('last_run') or o.get('first_seen') or now)  # Altbestand ohne Pruefzeit
+    # Vom Nutzer ausgeblendete Angebote: auch ihre Duplikate aus anderen Quellen (gleicher Haendler/Land/Preis) ausblenden
+    hidden = sync_hidden(state)
+    hidden_sigs = {(norm_shop(o['shop']), o['country'], round(o['price_eur'])) for o in offers if o['key'] in hidden}
     before = len(offers)
     offers = dedupe(offers)
     if before != len(offers):
         log(f'{before - len(offers)} doppelte Angebote zusammengefasst')
 
-    # Relevanz: neu bis show_max, gebraucht nur bis used_max
-    relevant = [o for o in offers
+    # Relevanz: neu bis show_max, gebraucht nur bis used_max; ausgeblendete nicht anzeigen und nicht melden
+    in_range = [o for o in offers
                 if (o['condition'] == 'neu' and o['price_eur'] <= CFG['show_max_eur'])
                 or (o['condition'] == 'gebraucht' and o['price_eur'] <= CFG['used_max_eur'])]
+    is_hidden = lambda o: o['key'] in hidden or (norm_shop(o['shop']), o['country'], round(o['price_eur'])) in hidden_sigs
+    relevant = [o for o in in_range if not is_hidden(o)]
+    # ausgeblendete trotzdem (verschluesselt) mitliefern, damit "einblenden" auf jedem Geraet sofort wirkt
+    state['hidden_offers'] = [o for o in in_range if is_hidden(o) and not o.get('expired')]
     # abgelaufene Deals nur noch als Orientierung (eigener Bereich, kein Alarm)
     expired = sorted((o for o in relevant if o.get('expired')), key=lambda o: o.get('posted', ''), reverse=True)
     shown = [o for o in relevant if not o.get('expired')]
@@ -825,6 +874,9 @@ def run(keys=None):
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding='utf-8')
     public = {k: state.get(k) for k in ('shown', 'expired', 'lowest', 'sources', 'last_run', 'last_feed_run', 'rate_chf_per_eur', 'config')}
     public['alerts'] = state['alerts'][-20:]
+    public['hidden'] = state.get('hidden', {})
+    public['hidden_offers'] = state.get('hidden_offers', [])
+    public['hide_topic'] = hide_topic()  # steht nur im verschluesselten Teil der Seite
     DATA_JS.write_text('window.PS5 = ' + json.dumps(public, ensure_ascii=False) + ';\n', encoding='utf-8')
     log(f'fertig: {len(shown)} relevante Angebote, {len(new_alerts)} neue Alarme')
     return new_alerts
