@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="900">
+<title>PS5-Radar</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #ffffff; --text: #1b1d22; --muted: #6b7280; --line: #e5e7eb;
+    --accent: #0b57d0; --good: #0a7d45; --good-bg: #e3f5eb; --warn: #9a5b00; --warn-bg: #fff3dc; --bad: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111317; --card: #1b1e24; --text: #e8eaed; --muted: #9aa0a6; --line: #2c3038;
+      --accent: #8ab4f8; --good: #6dd49b; --good-bg: #173325; --warn: #f1c26b; --warn-bg: #3a2c12; --bad: #f28b82; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 40px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 22px; margin: 0; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 18px 0; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .tile .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .tile .big { font-size: 28px; font-weight: 650; margin: 2px 0; font-variant-numeric: tabular-nums; }
+  .tile .small { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile.hit .big { color: var(--good); }
+  h2 { font-size: 15px; margin: 22px 0 8px; }
+  .list { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  a.row { display: grid; grid-template-columns: 88px 1fr; gap: 12px; padding: 12px 16px; color: inherit; text-decoration: none; border-top: 1px solid var(--line); }
+  a.row:first-child { border-top: 0; }
+  a.row:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+  .price { font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .price.hit { color: var(--good); }
+  .orig { font-size: 12px; color: var(--muted); }
+  .orig.down { color: var(--good); font-weight: 600; }
+  .orig.up { color: var(--bad); }
+  .title { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .meta { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 99px; margin-right: 4px; vertical-align: 1px; }
+  .tag.new { background: var(--good-bg); color: var(--good); }
+  .tag.used { background: var(--warn-bg); color: var(--warn); }
+  .tag.deal { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
+  .empty { padding: 20px 16px; color: var(--muted); }
+  .other a.row { opacity: .8; }
+  .other .price.hit { color: inherit; }
+  .sources { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .src { font-size: 12px; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--line); background: var(--card); }
+  .src.ok::before { content: "● "; color: var(--good); }
+  .src.fehler::before { content: "● "; color: var(--bad); }
+  .src.aus::before { content: "○ "; color: var(--muted); }
+  footer { margin-top: 18px; font-size: 12px; color: var(--muted); }
+  a.row { position: relative; padding-right: 44px; }
+  .hide { position: absolute; top: 10px; right: 10px; width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 8px;
+          background: var(--card); color: var(--muted); font: inherit; font-size: 15px; line-height: 1; cursor: pointer; }
+  .hide:hover { color: var(--bad); border-color: var(--bad); }
+  .hide.restore { width: auto; padding: 0 9px; font-size: 12px; }
+  .hide.restore:hover { color: var(--good); border-color: var(--good); }
+  .pending { font-size: 11px; color: var(--warn); }
+  details.hiddenbox summary { cursor: pointer; color: var(--muted); font-size: 14px; margin: 22px 0 8px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>🎮 PS5-Radar</h1>
+    <span class="sub" id="updated"></span>
+  </header>
+  <div class="tiles" id="tiles"></div>
+  <h2 id="listhead">Aktuelle Angebote</h2>
+  <div class="list" id="list"></div>
+  <h2>Sonstige Händler &amp; lokale Deals <span class="sub">(kein Alarm – Händler vor dem Kauf prüfen)</span></h2>
+  <div class="list other" id="other"></div>
+  <h2>Abgelaufene Deals <span class="sub">(letzte 45 Tage, zur Orientierung – nicht mehr erhältlich)</span></h2>
+  <div class="list other" id="expired"></div>
+  <h2>Letzte Alarme</h2>
+  <div class="list" id="alerts"></div>
+  <details class="hiddenbox" id="hiddenbox">
+    <summary id="hiddensum">Ausgeblendete Angebote</summary>
+    <div class="list other" id="hidden"></div>
+  </details>
+  <h2>Quellen</h2>
+  <div class="sources" id="sources"></div>
+  <footer id="foot"></footer>
+</main>
+<div id="lock" style="position:fixed;inset:0;z-index:50;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:16px">
+  <form id="lockForm" class="tile" style="width:100%;max-width:340px">
+    <h1 style="margin:0 0 12px">🎮 PS5-Radar</h1>
+    <input type="password" id="lockPw" placeholder="Passwort" autocomplete="current-password" required
+      style="width:100%;font:inherit;padding:9px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--text)">
+    <label style="display:flex;gap:6px;align-items:center;margin:10px 0;font-size:14px"><input type="checkbox" id="lockRem" checked> Auf diesem Gerät merken</label>
+    <button id="lockBtn" type="submit" style="width:100%;font:inherit;padding:9px;border-radius:8px;border:0;background:var(--accent);color:#fff;cursor:pointer">Öffnen</button>
+    <div id="lockErr" style="color:var(--bad);margin-top:8px;min-height:1.2em;font-size:14px"></div>
+  </form>
+</div>
+<script>
+(async () => {
+  const $ = (id) => document.getElementById(id);
+  if (!window.crypto || !crypto.subtle || !window.DecompressionStream) { $('lockErr').textContent = 'Dieser Browser ist zu alt.'; return; }
+  let buf;
+  try { buf = new Uint8Array(await (await fetch('data.bin?t=' + Date.now(), { cache: 'no-store' })).arrayBuffer()); }
+  catch (e) { $('lockErr').textContent = 'Daten konnten nicht geladen werden.'; return; }
+  const SALT = buf.slice(0, 16), IV = buf.slice(16, 28), CT = buf.slice(28);
+  const b64 = (u) => btoa(String.fromCharCode(...new Uint8Array(u)));
+  const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+  async function derive(pw) {
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: SALT, iterations: 600000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, true, ['decrypt']);
+  }
+  async function unlock(key) {
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: IV }, key, CT);
+    const txt = await new Response(new Blob([plain]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+    window.PS5 = JSON.parse(txt);
+    $('lock').remove();
+    const s = document.createElement('script'); s.textContent = $('app').textContent; document.body.appendChild(s);
+  }
+  try {  // gemerkt wird nur der abgeleitete Schluessel samt Salz, nicht das Passwort
+    const m = JSON.parse(localStorage.getItem('ps5-key') || 'null');
+    if (m && m.salt === b64(SALT)) { await unlock(await crypto.subtle.importKey('raw', unb64(m.key), 'AES-GCM', true, ['decrypt'])); return; }
+  } catch (e) { try { localStorage.removeItem('ps5-key'); } catch (e2) {} }
+  $('lockForm').onsubmit = async (e) => {
+    e.preventDefault();
+    $('lockBtn').disabled = true; $('lockErr').textContent = '';
+    try {
+      const key = await derive($('lockPw').value);
+      const remember = $('lockRem').checked;
+      await crypto.subtle.decrypt({ name: 'AES-GCM', iv: IV }, key, CT);  // wirft bei falschem Passwort
+      if (remember) { try { localStorage.setItem('ps5-key', JSON.stringify({ salt: b64(SALT), key: b64(await crypto.subtle.exportKey('raw', key)) })); } catch (e2) {} }
+      await unlock(key);
+    } catch (err) { if (!$('lock')) throw err; $('lockErr').textContent = 'Falsches Passwort.'; $('lockBtn').disabled = false; $('lockPw').select(); }
+  };
+  $('lockPw').focus();
+})();
+</script>
+<script type="text/plain" id="app">
+(function () {
+  const D = window.PS5;
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const eur = v => v.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: v % 1 ? 2 : 0 });
+  const flag = c => ({ DE: '🇩🇪', AT: '🇦🇹', CH: '🇨🇭' }[c] || c);
+  function ago(iso) {
+    const h = (Date.now() - new Date(iso)) / 36e5;
+    if (h < 1) return 'vor ' + Math.max(1, Math.round(h * 60)) + ' Min.';
+    if (h < 48) return 'vor ' + Math.round(h) + ' Std.';
+    return 'vor ' + Math.round(h / 24) + ' Tagen';
+  }
+  if (!D) { $('list').innerHTML = '<div class="empty">Noch keine Daten – der erste Abruf läuft noch.</div>'; return; }
+  const cfg = D.config;
+  const fmt = iso => new Date(iso).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
+  $('updated').textContent = 'Shops: ' + fmt(D.last_run) + ' · Deals: ' + ago(D.last_feed_run || D.last_run);
+
+  // ---- Ausblenden (geraeteuebergreifend): Klick -> ntfy-Kanal -> naechster Cloud-Lauf uebernimmt es dauerhaft.
+  // Bis dahin merkt sich dieses Geraet die Aenderung selbst ("pending"), damit sie sofort sichtbar ist.
+  const PKEY = 'ps5-pending';
+  const loadPending = () => { try { return JSON.parse(localStorage.getItem(PKEY) || '{}'); } catch (e) { return {}; } };
+  const savePending = p => { try { localStorage.setItem(PKEY, JSON.stringify(p)); } catch (e) {} };
+  const cloudHidden = D.hidden || {};
+  let pending = loadPending();
+  // Bestaetigte Aenderungen aufraeumen: ein Cloud-Lauf nach dem Klick hat sie uebernommen
+  const lastCloud = new Date(D.last_feed_run || D.last_run).getTime();
+  for (const [k, p] of Object.entries(pending)) {
+    const done = p.action === 'hide' ? !!cloudHidden[k] : !cloudHidden[k];
+    if (done && lastCloud > p.at) delete pending[k];
+  }
+  const send = (action, o) => fetch('https://ntfy.sh/', { method: 'POST', body: JSON.stringify({
+    topic: D.hide_topic, message: JSON.stringify({ action, key: o.key, title: (o.title || '').slice(0, 120), shop: o.shop, country: o.country, price_eur: o.price_eur }) }) });
+  // Nicht bestaetigte Aenderungen nach 20 Min. erneut senden (falls ein Cloud-Lauf ausgefallen ist)
+  for (const p of Object.values(pending)) if (D.hide_topic && Date.now() - (p.sent || p.at) > 12e5) { p.sent = Date.now(); send(p.action, p.o).catch(() => {}); }
+  savePending(pending);
+  const isHidden = k => pending[k] ? pending[k].action === 'hide' : !!cloudHidden[k];
+
+  function setHidden(o, hide) {
+    pending[o.key] = { action: hide ? 'hide' : 'show', at: Date.now(), sent: Date.now(),
+                       o: { key: o.key, title: o.title, shop: o.shop, country: o.country, price_eur: o.price_eur } };
+    savePending(pending);
+    if (D.hide_topic) send(hide ? 'hide' : 'show', o).catch(() => {});
+    render();
+  }
+
+  const byKey = {};
+  const row = (o, mode) => {
+    if (mode !== 'hidden' && mode !== 'alert') byKey[o.key] = o;
+    const orig = o.currency && o.currency !== 'EUR' && typeof o.price === 'number'
+      ? `<div class="orig">${o.price.toFixed(2)} ${o.currency}</div>` + (o.country === 'CH' ? `<div class="orig">≈ ${eur(Math.round(o.price_eur * 1.19))} inkl. EUSt</div>` : '')
+      : '';
+    const tags = (o.is_new ? '<span class="tag new">NEU</span>' : '') +
+      (o.condition === 'gebraucht' ? '<span class="tag used">gebraucht</span>' : '') +
+      (o.kind === 'deal' ? '<span class="tag deal">Deal</span>' : '') +
+      (o.local ? '<span class="tag used">nur im Laden</span>' : '');
+    // Zeitangaben: wann zuletzt geprueft, seit wann im Radar (bzw. wann der Deal gepostet / der Alarm kam)
+    const parts = [];
+    if (o.kind === 'deal' && o.posted) parts.push('gepostet ' + ago(o.posted));
+    if (o.checked) parts.push('geprüft ' + ago(o.checked));
+    if (o.first_seen && o.kind !== 'deal' && (Date.now() - new Date(o.first_seen)) > 864e5) parts.push('im Radar seit ' + ago(o.first_seen).replace('vor ', ''));
+    if (!parts.length && o.at) parts.push((mode === 'hidden' ? 'ausgeblendet ' : 'gemeldet ') + ago(o.at));
+    const when = parts.join(' · ');
+    const change = o.prev_eur && Math.abs(o.prev_eur - o.price_eur) >= 1
+      ? `<div class="orig ${o.price_eur < o.prev_eur ? 'down' : 'up'}" title="geändert ${esc(ago(o.changed_at))}">${o.price_eur < o.prev_eur ? '↓' : '↑'} vorher ${eur(o.prev_eur)}</div>` : '';
+    const btn = !o.key || !D.hide_topic || mode === 'alert' ? ''
+      : mode === 'hidden' ? `<button class="hide restore" data-key="${esc(o.key)}" data-act="show" title="wieder einblenden">einblenden</button>`
+      : `<button class="hide" data-key="${esc(o.key)}" data-act="hide" title="ausblenden (auf allen Geräten)">✕</button>`;
+    const pend = pending[o.key] && mode !== 'alert' ? ' · <span class="pending">wird auf allen Geräten übernommen …</span>' : '';
+    const price = typeof o.price_eur === 'number' ? eur(o.price_eur) : '–';
+    return `<a class="row" href="${esc(o.url || '#')}" target="_blank" rel="noopener">
+      <div><div class="price ${o.price_eur < cfg.alert_below_eur ? 'hit' : ''}">${price}</div>${change}${orig}</div>
+      <div><div class="title">${tags}${esc(o.title)}</div>
+      <div class="meta">${flag(o.country)} ${esc(o.shop)}${when ? ' · ' + when : ''}${o.note ? ' · ' + esc(o.note) : ''}${pend}</div></div>${btn}</a>`;
+  };
+
+  document.addEventListener('click', e => {
+    const b = e.target.closest('button.hide');
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    const k = b.dataset.key;
+    const o = byKey[k] || cloudHidden[k] || (pending[k] && pending[k].o);
+    if (o) setHidden({ ...o, key: k }, b.dataset.act === 'hide');
+  }, true);
+
+  function render() {
+    // sichtbar = Anzeige-Liste + von der Cloud ausgeblendete, die hier gerade wieder eingeblendet wurden
+    const visible = D.shown.concat(D.hidden_offers || []).filter(o => !isHidden(o.key)).sort((a, b) => a.price_eur - b.price_eur);
+    const official = visible.filter(o => o.trusted && !o.local);
+    const other = visible.filter(o => !(o.trusted && !o.local));
+    // Bestpreis nur aus DE/AT: CH-Preise sind ohne Zoll/Einfuhrumsatzsteuer und daher nicht vergleichbar
+    const best = official.find(o => o.condition === 'neu' && o.country !== 'CH');
+    const bestUsed = official.find(o => o.condition === 'gebraucht' && o.country !== 'CH');
+    const tile = (label, o, extra) => o
+      ? `<div class="tile ${o.price_eur < cfg.alert_below_eur ? 'hit' : ''}"><div class="label">${label}</div><div class="big">${eur(o.price_eur)}</div><div class="small" title="${esc(o.title)}">${flag(o.country)} ${esc(o.shop)}${extra ? ' · ' + extra : ''}</div></div>`
+      : `<div class="tile"><div class="label">${label}</div><div class="big">–</div><div class="small">nichts im Rahmen</div></div>`;
+    $('tiles').innerHTML =
+      tile('Bestpreis neu', best) +
+      tile('Tiefstpreis seit Start', D.lowest, D.lowest ? ago(D.lowest.at) : '') +
+      tile(`Gebraucht ≤ ${cfg.used_max_eur} €`, bestUsed) +
+      `<div class="tile"><div class="label">Alarm unter</div><div class="big">${eur(cfg.alert_below_eur)}</div><div class="small">läuft bis ${new Date(cfg.until).toLocaleDateString('de-DE')}</div></div>`;
+
+    $('listhead').textContent = `Offizielle Händler (neu ≤ ${cfg.show_max_eur} €, gebraucht ≤ ${cfg.used_max_eur} €)`;
+    $('list').innerHTML = official.length ? official.map(o => row(o)).join('') : '<div class="empty">Gerade nichts im Preisrahmen.</div>';
+    $('other').innerHTML = other.length ? other.map(o => row(o)).join('') : '<div class="empty">Nichts.</div>';
+    const exp = (D.expired || []).filter(o => !isHidden(o.key));
+    $('expired').innerHTML = exp.length ? exp.map(o => row({ ...o, is_new: false })).join('') : '<div class="empty">Keine.</div>';
+    const al = (D.alerts || []).slice().reverse();
+    $('alerts').innerHTML = al.length ? al.map(a => row({ ...a, kind: '', is_new: false }, 'alert')).join('') : `<div class="empty">Noch kein Angebot unter ${eur(cfg.alert_below_eur)}.</div>`;
+
+    // Ausgeblendete: aus der Cloud + noch nicht uebernommene Klicks dieses Geraets
+    const hid = {};
+    for (const [k, h] of Object.entries(cloudHidden)) if (isHidden(k)) hid[k] = { ...h, key: k };
+    for (const [k, p] of Object.entries(pending)) if (p.action === 'hide') hid[k] = { ...(byKey[k] || p.o), key: k, at: new Date(p.at).toISOString() };
+    const hl = Object.values(hid).sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    $('hiddensum').textContent = `Ausgeblendete Angebote (${hl.length})`;
+    $('hiddenbox').style.display = hl.length ? '' : 'none';
+    $('hidden').innerHTML = hl.map(h => row({ ...h, is_new: false, checked: null, first_seen: null, kind: '', prev_eur: null }, 'hidden')).join('');
+  }
+  render();
+
+  $('sources').innerHTML = Object.values(D.sources).map(s =>
+    `<span class="src ${s.status}" title="${esc(s.msg)}">${esc(s.name)}${s.status === 'ok' ? ' · ' + s.count : s.status === 'aus' ? ' · aus' : ' · Fehler'}</span>`).join('');
+  $('foot').textContent = `Deal-Feeds (mydealz, preisjaeger, preispirat) mehrmals pro Stunde; Shops (Amazon, MediaMarkt, Saturn, OTTO, Müller, Alternate, PlayStation Direct, rebuy, billiger.de mit allen Händlern, ricardo, Google Shopping über SerpApi) alle ~6 Std. Gleiche Angebote aus mehreren Quellen sind zusammengefasst, Ausverkauftes ist ausgeblendet. Mit ✕ blendest du ein Angebot auf allen Geräten aus (dann auch kein Alarm). Alarm nur bei offiziellen Händlern. CHF-Kurs: 1 € = ${D.rate_chf_per_eur} CHF (ohne Zoll/Einfuhrumsatzsteuer). Seite lädt sich alle 15 Min. neu.`;
+})();
+</script>
+</body>
+</html>
