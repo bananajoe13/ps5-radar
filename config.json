@@ -1,8 +1,8 @@
 {
-  "alert_below_eur": 550,
+  "alert_below_eur": 600,
   "deal_alert_below_eur": 600,
   "show_max_eur": 650,
-  "used_max_eur": 420,
+  "used_max_eur": 0,
   "until": "2026-11-30",
   "deal_days": 45,
   "stale_hours": 5.75,

@@ -184,7 +184,7 @@
     $('tiles').innerHTML =
       tile('Bestpreis neu', best) +
       tile('Tiefstpreis seit Start', D.lowest, D.lowest ? ago(D.lowest.at) : '') +
-      tile(`Gebraucht ≤ ${cfg.used_max_eur} €`, bestUsed) +
+      (cfg.used_max_eur > 0 ? tile(`Gebraucht ≤ ${cfg.used_max_eur} €`, bestUsed) : '') +
       `<div class="tile"><div class="label">Alarm unter</div><div class="big">${eur(cfg.alert_below_eur)}</div><div class="small">läuft bis ${new Date(cfg.until).toLocaleDateString('de-DE')}</div></div>`;
 
     $('listhead').textContent = `Offizielle Händler (neu ≤ ${cfg.show_max_eur} €, gebraucht ≤ ${cfg.used_max_eur} €)`;

@@ -327,27 +327,6 @@ def saturn():
     return mediamarkt_like('saturn.de', 'Saturn', 'Saturn')
 
 
-def otto():
-    out = []
-    for q in ('playstation 5 disk', 'ps5 slim konsole', 'playstation 5 konsole'):
-        t = get(f'https://www.otto.de/suche/{quote(q)}/')
-        for b in re.findall(r'<script type="application/ld\+json"[^>]*>(.*?)</script>', t, re.S):
-            try:
-                j = json.loads(b)
-            except ValueError:
-                continue
-            if j.get('@type') != 'Product' or not is_ps5_with_drive(j.get('name', '')):
-                continue
-            for o in j.get('offers') or []:
-                if 'InStock' not in (o.get('availability') or 'InStock'):
-                    continue
-                vid = next((p['value'] for p in j.get('additionalProperty', []) if p.get('name') == 'variationId'), j['url'])
-                out.append(offer(id=vid, source='otto', shop='OTTO', country='DE', title=j['name'], price=num(o['price']),
-                                 url='https://www.otto.de' + o.get('url', j['url']),
-                                 condition='neu' if 'NewCondition' in o.get('itemCondition', 'New') else 'gebraucht'))
-    return out
-
-
 def billiger():
     """billiger.de: passende Produkte suchen, dann auf jeder Produktseite ALLE Haendlerangebote lesen (JSON-LD)."""
     t = get('https://www.billiger.de/search?searchstring=' + quote('playstation 5 slim disc'))
@@ -423,35 +402,36 @@ def alternate():
     return out
 
 
+PSD_DISC_URL = 'https://www.playstation.com/de-de/ps5/1-tb-disc/'
+
+
 def psdirect():
-    """PlayStation Direct (Sonys eigener Shop): Produktseiten -> Produktcodes -> oeffentliche Preis-/Lager-API."""
-    hub = get('https://direct.playstation.com/de-de/hardware/ps5')
-    pages = sorted(set(re.findall(r'href="(/de-de/buy-consoles/[^"]*playstation5[^"]*)"', hub)))
-    pages = [p for p in pages if 'digital' not in p and 'pro-console' not in p]
-    codes = {}
-    for p in pages:
-        m = re.search(r'productHero-component[^>]*data-product-code="(\d+-DE)"', get('https://direct.playstation.com' + p))
-        if m:
-            codes[m.group(1)] = p
-    if not codes:
-        raise RuntimeError('keine Produktcodes gefunden')
-    r = requests.get('https://api.direct.playstation.com/commercewebservices/ps-direct-de/users/anonymous/products/productList',
-                     params={'fields': 'BASIC', 'lang': 'de_DE', 'productCodes': ','.join(codes)},
-                     headers={**HEADERS, 'Accept': 'application/json'}, timeout=40)
-    r.raise_for_status()
+    """PlayStation Direct (Sonys eigener Shop, seit Okt. 2026 auf playstation.com).
+    Namen aus der Shop-Uebersicht, Preis + Lagerstatus aus der Seite der Disc-Version (enthaelt alle Disc-Varianten,
+    auch die oft guenstigeren Spiele-Bundles). Nur vorraetige Neugeraete werden gemeldet."""
+    unesc = lambda s: s.replace('\\\\', '\\').replace('\\"', '"')  # Daten stecken als escapter JSON-String in der Seite
+    shop = unesc(get('https://www.playstation.com/de-de/consoles/ps5/shop-all/'))
+    i = shop.find('"__typename":"CategoryGrid"')
+    j = shop.find('"products":[', i)
+    if i < 0 or j < 0:
+        raise RuntimeError('Produktliste nicht gefunden')
+    prods, _ = json.JSONDecoder().raw_decode(shop[j + len('"products":'):])
+    names = {p['id']: txt(p['name']) for p in prods}
+    page = unesc(get(PSD_DISC_URL))
+    stock = {}
+    for m in re.finditer(r'"id":"(PSD001-[^"]+)","displayPrice":"[^"]*","price":(\d+)(?:(?!"id":"PSD001)[^\n]){0,800}?"stockLevelStatus":"(\w+)"', page):
+        stock[m.group(1)] = (int(m.group(2)) / 100, m.group(3))
+    if not stock:
+        raise RuntimeError('kein Lagerstatus gefunden')
     out = []
-    for p in r.json().get('products', []):
-        path = codes.get(p.get('code'), '')
-        refurb = 'refurbished' in path
-        title = txt(p.get('name', '')) + (' (Disc, generalüberholt)' if refurb else '')
-        if (p.get('stock') or {}).get('stockLevelStatus') != 'inStock' or not (p.get('price') or {}).get('value'):
+    for sku, (price, status) in stock.items():
+        title = next((n for pid, n in names.items() if sku.startswith(pid)), '')
+        if status != 'IN_STOCK' or not title or 'generalüberholt' in title.lower():
             continue
-        if not refurb and not is_ps5_with_drive(title + ' Konsole Disc'):
+        if not is_ps5_with_drive(title + ' Konsole Disc'):
             continue
-        out.append(offer(id=p['code'], source='psdirect', shop='PlayStation Direct', country='DE', title=title,
-                         price=float(p['price']['value']), url='https://direct.playstation.com' + path,
-                         condition='gebraucht' if refurb else 'neu',
-                         note='von Sony zertifiziert generalüberholt, mit Garantie' if refurb else 'Sony-Shop'))
+        out.append(offer(id=sku, source='psdirect', shop='PlayStation Direct', country='DE', title=title,
+                         price=price, url=PSD_DISC_URL, note='Sony-Shop · mit PS Plus 5 % günstiger'))
     return out
 
 
@@ -573,7 +553,6 @@ SOURCES = {
     'amazon': ('Amazon.de', 'DE', amazon),
     'mediamarkt': ('MediaMarkt', 'DE', mediamarkt),
     'saturn': ('Saturn', 'DE', saturn),
-    'otto': ('OTTO', 'DE', otto),
     'billiger': ('billiger.de', 'DE', billiger),
     'mueller': ('Müller', 'DE', mueller),
     'alternate': ('Alternate', 'DE', alternate),
@@ -593,7 +572,7 @@ TRUSTED = re.compile(
     r'mediamarkt\.(at|ch)|amazon\.(fr|it|es|nl))\b', re.I)
 
 
-WATCH_EMPTY = ('amazon', 'mediamarkt', 'saturn', 'otto', 'billiger', 'mueller', 'alternate')  # liefern sonst immer Treffer
+WATCH_EMPTY = ('amazon', 'mediamarkt', 'saturn', 'billiger', 'mueller', 'alternate')  # liefern sonst immer Treffer
 FEEDS = ('mydealz', 'preisjaeger', 'preispirat')  # leichte RSS-Feeds: stuendlich (--feeds)
 if IN_CLOUD:
     FEEDS += ('amazon',)  # in der Cloud nur das Lesen der PC-Daten (ntfy) - kostet nichts, daher auch stuendlich
@@ -718,6 +697,7 @@ def run(keys=None):
     rate = chf_per_eur()
     GS_STATE.update(state.get('google_shopping') or {})
     keys = list(keys or SOURCES)
+    state['sources'] = {k: v for k, v in state.get('sources', {}).items() if k in SOURCES}  # entfernte Quellen (z. B. OTTO) nicht mehr anzeigen
     results = {}
 
     def one(key):
