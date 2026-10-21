@@ -573,7 +573,7 @@ TRUSTED = re.compile(
 
 
 WATCH_EMPTY = ('amazon', 'mediamarkt', 'saturn', 'billiger', 'mueller', 'alternate')  # liefern sonst immer Treffer
-FEEDS = ('mydealz', 'preisjaeger', 'preispirat')  # leichte RSS-Feeds: stuendlich (--feeds)
+FEEDS = ('mydealz', 'preisjaeger', 'preispirat', 'psdirect')  # leicht, bei jedem Lauf: Deal-Feeds + Sony (Bundles sind nach Nachschub schnell weg)
 if IN_CLOUD:
     FEEDS += ('amazon',)  # in der Cloud nur das Lesen der PC-Daten (ntfy) - kostet nichts, daher auch stuendlich
 # Beim Zusammenfassen gleicher Angebote gewinnt die direktere Quelle
